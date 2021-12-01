@@ -14,11 +14,17 @@ void RS485Climate::dump_config() {
 climate::ClimateTraits RS485Climate::traits() {
   auto traits = climate::ClimateTraits();
   traits.set_supports_current_temperature(true);
-  traits.set_supports_auto_mode(this->supports_auto_);
-  traits.set_supports_cool_mode(this->supports_cool_);
-  traits.set_supports_heat_mode(this->supports_heat_);
+  traits.set_supported_modes({
+            climate::CLIMATE_MODE_AUTO,
+            climate::CLIMATE_MODE_OFF,
+            climate::CLIMATE_MODE_COOL,
+            climate::CLIMATE_MODE_HEAT,
+  });
   traits.set_supports_two_point_target_temperature(false);
-  traits.set_supports_away(this->supports_away_);
+  traits.set_supported_presets({
+            climate::CLIMATE_PRESET_HOME,
+            climate::CLIMATE_PRESET_AWAY,
+  });
   traits.set_visual_min_temperature(5);
   traits.set_visual_max_temperature(40);
   traits.set_visual_temperature_step(1);
@@ -70,9 +76,9 @@ void RS485Climate::publish(const uint8_t *data, const num_t len) {
     }
   }
   // away
-  if(this->state_away_.has_value()) {
-    if(this->away != compare(&data[0], len, &state_away_.value())) {
-      this->away = !this->away;
+  if(this->state_away_.has_value() && compare(&data[0], len, &state_away_.value())) {
+    if(this->preset != climate::CLIMATE_PRESET_AWAY) {
+      this->preset = climate::CLIMATE_PRESET_AWAY;
       changed = true;
     }
   }
@@ -144,9 +150,9 @@ void RS485Climate::control(const climate::ClimateCall &call) {
   }
   
   // Set away
-  if(this->command_away_.has_value() && call.get_away().has_value() && this->away != *call.get_away()) {
-    this->away = *call.get_away();
-    if(this->away) write_with_header(&this->command_away_.value());
+  if(this->command_away_.has_value() && call.get_preset().has_value() && this->preset != *call.get_preset()) {
+    this->preset = *call.get_preset();
+    if(this->preset) write_with_header(&this->command_away_.value());
     else if(this->command_home_.has_value()) write_with_header(&this->command_home_.value());
     else if(this->mode == climate::CLIMATE_MODE_OFF) write_with_header(this->get_command_off());
     else if(this->mode == climate::CLIMATE_MODE_HEAT && this->command_heat_.has_value()) write_with_header(&this->command_heat_.value());
