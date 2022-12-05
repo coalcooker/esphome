@@ -2,6 +2,7 @@
 
 #include "i2c_bus_arduino.h"
 #include "esphome/core/log.h"
+#include "esphome/core/helpers.h"
 #include <Arduino.h>
 #include <cstring>
 
@@ -13,20 +14,39 @@ static const char *const TAG = "i2c.arduino";
 void ArduinoI2CBus::setup() {
   recover_();
 
-#ifdef USE_ESP32
+#if defined(USE_ESP32)
   static uint8_t next_bus_num = 0;
-  if (next_bus_num == 0)
+  if (next_bus_num == 0) {
     wire_ = &Wire;
-  else
+  } else {
     wire_ = new TwoWire(next_bus_num);  // NOLINT(cppcoreguidelines-owning-memory)
+  }
   next_bus_num++;
-#else
+#elif defined(USE_ESP8266)
   wire_ = &Wire;  // NOLINT(cppcoreguidelines-prefer-member-initializer)
+#elif defined(USE_RP2040)
+  static bool first = true;
+  if (first) {
+    wire_ = &Wire;
+    first = false;
+  } else {
+    wire_ = &Wire1;  // NOLINT(cppcoreguidelines-owning-memory)
+  }
 #endif
 
-  wire_->begin(sda_pin_, scl_pin_);
+#ifdef USE_RP2040
+  wire_->setSDA(this->sda_pin_);
+  wire_->setSCL(this->scl_pin_);
+  wire_->begin();
+#else
+  wire_->begin(static_cast<int>(sda_pin_), static_cast<int>(scl_pin_));
+#endif
   wire_->setClock(frequency_);
   initialized_ = true;
+  if (this->scan_) {
+    ESP_LOGV(TAG, "Scanning i2c bus for active devices...");
+    this->i2c_scan_();
+  }
 }
 void ArduinoI2CBus::dump_config() {
   ESP_LOGCONFIG(TAG, "I2C Bus:");
@@ -45,22 +65,21 @@ void ArduinoI2CBus::dump_config() {
       break;
   }
   if (this->scan_) {
-    ESP_LOGI(TAG, "Scanning i2c bus for active devices...");
-    uint8_t found = 0;
-    for (uint8_t address = 8; address < 120; address++) {
-      auto err = writev(address, nullptr, 0);
-      if (err == ERROR_OK) {
-        ESP_LOGI(TAG, "Found i2c device at address 0x%02X", address);
-        found++;
-      } else if (err == ERROR_UNKNOWN) {
-        ESP_LOGI(TAG, "Unknown error at address 0x%02X", address);
-      }
-    }
-    if (found == 0) {
+    ESP_LOGI(TAG, "Results from i2c bus scan:");
+    if (scan_results_.empty()) {
       ESP_LOGI(TAG, "Found no i2c devices!");
+    } else {
+      for (const auto &s : scan_results_) {
+        if (s.second) {
+          ESP_LOGI(TAG, "Found i2c device at address 0x%02X", s.first);
+        } else {
+          ESP_LOGE(TAG, "Unknown error at address 0x%02X", s.first);
+        }
+      }
     }
   }
 }
+
 ErrorCode ArduinoI2CBus::readv(uint8_t address, ReadBuffer *buffers, size_t cnt) {
   // logging is only enabled with vv level, if warnings are shown the caller
   // should log them
@@ -99,7 +118,7 @@ ErrorCode ArduinoI2CBus::readv(uint8_t address, ReadBuffer *buffers, size_t cnt)
 
   return ERROR_OK;
 }
-ErrorCode ArduinoI2CBus::writev(uint8_t address, WriteBuffer *buffers, size_t cnt) {
+ErrorCode ArduinoI2CBus::writev(uint8_t address, WriteBuffer *buffers, size_t cnt, bool stop) {
   // logging is only enabled with vv level, if warnings are shown the caller
   // should log them
   if (!initialized_) {
@@ -134,7 +153,7 @@ ErrorCode ArduinoI2CBus::writev(uint8_t address, WriteBuffer *buffers, size_t cn
       return ERROR_UNKNOWN;
     }
   }
-  uint8_t status = wire_->endTransmission(true);
+  uint8_t status = wire_->endTransmission(stop);
   if (status == 0) {
     return ERROR_OK;
   } else if (status == 1) {
@@ -219,7 +238,7 @@ void ArduinoI2CBus::recover_() {
   digitalWrite(sda_pin_, LOW);      // NOLINT
 
   // By now, any stuck device ought to have sent all remaining bits of its
-  // transation, meaning that it should have freed up the SDA line, resulting
+  // transaction, meaning that it should have freed up the SDA line, resulting
   // in SDA being pulled up.
   if (digitalRead(sda_pin_) == LOW) {  // NOLINT
     ESP_LOGE(TAG, "Recovery failed: SDA is held LOW after clock pulse cycle");

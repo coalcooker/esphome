@@ -128,7 +128,7 @@ void ESP32ImprovComponent::loop() {
         std::vector<std::string> urls = {ESPHOME_MY_LINK};
 #ifdef USE_WEBSERVER
         auto ip = wifi::global_wifi_component->wifi_sta_ip();
-        std::string webserver_url = "http://" + ip.str() + ":" + to_string(WEBSERVER_PORT);
+        std::string webserver_url = "http://" + ip.str() + ":" + to_string(USE_WEBSERVER_PORT);
         urls.push_back(webserver_url);
 #endif
         std::vector<uint8_t> data = improv::build_rpc_response(improv::WIFI_SETTINGS, urls);
@@ -177,8 +177,9 @@ void ESP32ImprovComponent::set_state_(improv::State state) {
 }
 
 void ESP32ImprovComponent::set_error_(improv::Error error) {
-  if (error != improv::ERROR_NONE)
+  if (error != improv::ERROR_NONE) {
     ESP_LOGE(TAG, "Error: %d", error);
+  }
   if (this->error_->get_value().empty() || this->error_->get_value()[0] != error) {
     uint8_t data[1]{error};
     this->error_->set_value(data, 1);
@@ -219,7 +220,7 @@ void ESP32ImprovComponent::dump_config() {
 void ESP32ImprovComponent::process_incoming_data_() {
   uint8_t length = this->incoming_data_[1];
 
-  ESP_LOGD(TAG, "Processing bytes - %s", hexencode(this->incoming_data_).c_str());
+  ESP_LOGD(TAG, "Processing bytes - %s", format_hex_pretty(this->incoming_data_).c_str());
   if (this->incoming_data_.size() - 3 == length) {
     this->set_error_(improv::ERROR_NONE);
     improv::ImprovCommand command = improv::parse_improv_data(this->incoming_data_);

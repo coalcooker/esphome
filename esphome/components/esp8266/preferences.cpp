@@ -5,12 +5,14 @@ extern "C" {
 #include "spi_flash.h"
 }
 
-#include "preferences.h"
-#include <cstring>
-#include "esphome/core/preferences.h"
+#include "esphome/core/defines.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
-#include "esphome/core/defines.h"
+#include "esphome/core/preferences.h"
+#include "preferences.h"
+
+#include <cstring>
+#include <vector>
 
 namespace esphome {
 namespace esp8266 {
@@ -55,7 +57,7 @@ static inline bool esp_rtc_user_mem_write(uint32_t index, uint32_t value) {
 
 extern "C" uint32_t _SPIFFS_end;  // NOLINT
 
-static const uint32_t get_esp8266_flash_sector() {
+static uint32_t get_esp8266_flash_sector() {
   union {
     uint32_t *ptr;
     uint32_t uint;
@@ -63,7 +65,7 @@ static const uint32_t get_esp8266_flash_sector() {
   data.ptr = &_SPIFFS_end;
   return (data.uint - 0x40200000) / SPI_FLASH_SEC_SIZE;
 }
-static const uint32_t get_esp8266_flash_address() { return get_esp8266_flash_sector() * SPI_FLASH_SEC_SIZE; }
+static uint32_t get_esp8266_flash_address() { return get_esp8266_flash_sector() * SPI_FLASH_SEC_SIZE; }
 
 template<class It> uint32_t calculate_crc(It first, It last, uint32_t type) {
   uint32_t crc = type;
@@ -98,16 +100,18 @@ static bool load_from_flash(size_t offset, uint32_t *data, size_t len) {
 }
 
 static bool save_to_rtc(size_t offset, const uint32_t *data, size_t len) {
-  for (uint32_t i = 0; i < len; i++)
+  for (uint32_t i = 0; i < len; i++) {
     if (!esp_rtc_user_mem_write(offset + i, data[i]))
       return false;
+  }
   return true;
 }
 
 static bool load_from_rtc(size_t offset, uint32_t *data, size_t len) {
-  for (uint32_t i = 0; i < len; i++)
+  for (uint32_t i = 0; i < len; i++) {
     if (!esp_rtc_user_mem_read(offset + i, &data[i]))
       return false;
+  }
   return true;
 }
 
@@ -241,15 +245,32 @@ class ESP8266Preferences : public ESPPreferences {
       }
     }
     if (erase_res != SPI_FLASH_RESULT_OK) {
-      ESP_LOGV(TAG, "Erase ESP8266 flash failed!");
+      ESP_LOGE(TAG, "Erase ESP8266 flash failed!");
       return false;
     }
     if (write_res != SPI_FLASH_RESULT_OK) {
-      ESP_LOGV(TAG, "Write ESP8266 flash failed!");
+      ESP_LOGE(TAG, "Write ESP8266 flash failed!");
       return false;
     }
 
     s_flash_dirty = false;
+    return true;
+  }
+
+  bool reset() override {
+    ESP_LOGD(TAG, "Cleaning up preferences in flash...");
+    SpiFlashOpResult erase_res;
+    {
+      InterruptLock lock;
+      erase_res = spi_flash_erase_sector(get_esp8266_flash_sector());
+    }
+    if (erase_res != SPI_FLASH_RESULT_OK) {
+      ESP_LOGE(TAG, "Erase ESP8266 flash failed!");
+      return false;
+    }
+
+    // Protect flash from writing till restart
+    s_prevent_write = true;
     return true;
   }
 };

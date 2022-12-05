@@ -49,10 +49,11 @@ bool RFBridgeComponent::parse_bridge_byte_(uint8_t byte) {
       data.high = (raw[6] << 8) | raw[7];
       data.code = (raw[8] << 16) | (raw[9] << 8) | raw[10];
 
-      if (action == RF_CODE_LEARN_OK)
+      if (action == RF_CODE_LEARN_OK) {
         ESP_LOGD(TAG, "Learning success");
+      }
 
-      ESP_LOGD(TAG, "Received RFBridge Code: sync=0x%04X low=0x%04X high=0x%04X code=0x%06X", data.sync, data.low,
+      ESP_LOGI(TAG, "Received RFBridge Code: sync=0x%04X low=0x%04X high=0x%04X code=0x%06X", data.sync, data.low,
                data.high, data.code);
       this->data_callback_.call(data);
       break;
@@ -73,7 +74,7 @@ bool RFBridgeComponent::parse_bridge_byte_(uint8_t byte) {
         data.code += next_byte;
       }
 
-      ESP_LOGD(TAG, "Received RFBridge Advanced Code: length=0x%02X protocol=0x%02X code=0x%s", data.length,
+      ESP_LOGI(TAG, "Received RFBridge Advanced Code: length=0x%02X protocol=0x%02X code=0x%s", data.length,
                data.protocol, data.code.c_str());
       this->advanced_data_callback_.call(data);
       break;
@@ -97,7 +98,7 @@ bool RFBridgeComponent::parse_bridge_byte_(uint8_t byte) {
           str += " ";
         }
       }
-      ESP_LOGD(TAG, "Received RFBridge Bucket: %s", str.c_str());
+      ESP_LOGI(TAG, "Received RFBridge Bucket: %s", str.c_str());
       break;
     }
     default:
@@ -186,7 +187,7 @@ void RFBridgeComponent::dump_config() {
 }
 
 void RFBridgeComponent::start_advanced_sniffing() {
-  ESP_LOGD(TAG, "Advanced Sniffing on");
+  ESP_LOGI(TAG, "Advanced Sniffing on");
   this->write(RF_CODE_START);
   this->write(RF_CODE_SNIFFING_ON);
   this->write(RF_CODE_STOP);
@@ -194,7 +195,7 @@ void RFBridgeComponent::start_advanced_sniffing() {
 }
 
 void RFBridgeComponent::stop_advanced_sniffing() {
-  ESP_LOGD(TAG, "Advanced Sniffing off");
+  ESP_LOGI(TAG, "Advanced Sniffing off");
   this->write(RF_CODE_START);
   this->write(RF_CODE_SNIFFING_OFF);
   this->write(RF_CODE_STOP);
@@ -202,7 +203,7 @@ void RFBridgeComponent::stop_advanced_sniffing() {
 }
 
 void RFBridgeComponent::start_bucket_sniffing() {
-  ESP_LOGD(TAG, "Raw Bucket Sniffing on");
+  ESP_LOGI(TAG, "Raw Bucket Sniffing on");
   this->write(RF_CODE_START);
   this->write(RF_CODE_RFIN_BUCKET);
   this->write(RF_CODE_STOP);

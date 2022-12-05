@@ -10,6 +10,9 @@
 #ifdef USE_ESP8266
 #include "sntp.h"
 #endif
+#ifdef USE_RP2040
+#include "lwip/apps/sntp.h"
+#endif
 
 // Yes, the server names are leaked, but that's fine.
 #ifdef CLANG_TIDY
@@ -71,7 +74,7 @@ void SNTPComponent::loop() {
   if (!time.is_valid())
     return;
 
-  ESP_LOGD(TAG, "Synchronized time: %d-%d-%d %d:%02d:%02d", time.year, time.month, time.day_of_month, time.hour,
+  ESP_LOGD(TAG, "Synchronized time: %04d-%02d-%02d %02d:%02d:%02d", time.year, time.month, time.day_of_month, time.hour,
            time.minute, time.second);
   this->time_sync_callback_.call();
   this->has_time_ = true;

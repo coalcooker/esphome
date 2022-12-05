@@ -2,6 +2,7 @@
 #include "ota_backend.h"
 #include "ota_backend_arduino_esp32.h"
 #include "ota_backend_arduino_esp8266.h"
+#include "ota_backend_arduino_rp2040.h"
 #include "ota_backend_esp_idf.h"
 
 #include "esphome/core/log.h"
@@ -21,6 +22,8 @@ static const char *const TAG = "ota";
 
 static const uint8_t OTA_VERSION_1_0 = 1;
 
+OTAComponent *global_ota_component = nullptr;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+
 std::unique_ptr<OTABackend> make_ota_backend() {
 #ifdef USE_ARDUINO
 #ifdef USE_ESP8266
@@ -33,10 +36,15 @@ std::unique_ptr<OTABackend> make_ota_backend() {
 #ifdef USE_ESP_IDF
   return make_unique<IDFOTABackend>();
 #endif  // USE_ESP_IDF
+#ifdef USE_RP2040
+  return make_unique<ArduinoRP2040OTABackend>();
+#endif  // USE_RP2040
 }
 
+OTAComponent::OTAComponent() { global_ota_component = this; }
+
 void OTAComponent::setup() {
-  server_ = socket::socket(AF_INET, SOCK_STREAM, 0);
+  server_ = socket::socket_ip(SOCK_STREAM, 0);
   if (server_ == nullptr) {
     ESP_LOGW(TAG, "Could not create socket.");
     this->mark_failed();
@@ -55,11 +63,14 @@ void OTAComponent::setup() {
     return;
   }
 
-  struct sockaddr_in server;
-  memset(&server, 0, sizeof(server));
-  server.sin_family = AF_INET;
-  server.sin_addr.s_addr = ESPHOME_INADDR_ANY;
-  server.sin_port = htons(this->port_);
+  struct sockaddr_storage server;
+
+  socklen_t sl = socket::set_sockaddr_any((struct sockaddr *) &server, sizeof(server), htons(this->port_));
+  if (sl == 0) {
+    ESP_LOGW(TAG, "Socket unable to set sockaddr: errno %d", errno);
+    this->mark_failed();
+    return;
+  }
 
   err = server_->bind((struct sockaddr *) &server, sizeof(server));
   if (err != 0) {
@@ -141,14 +152,14 @@ void OTAComponent::handle_() {
 
   if (!this->readall_(buf, 5)) {
     ESP_LOGW(TAG, "Reading magic bytes failed!");
-    goto error;
+    goto error;  // NOLINT(cppcoreguidelines-avoid-goto)
   }
   // 0x6C, 0x26, 0xF7, 0x5C, 0x45
   if (buf[0] != 0x6C || buf[1] != 0x26 || buf[2] != 0xF7 || buf[3] != 0x5C || buf[4] != 0x45) {
     ESP_LOGW(TAG, "Magic bytes do not match! 0x%02X-0x%02X-0x%02X-0x%02X-0x%02X", buf[0], buf[1], buf[2], buf[3],
              buf[4]);
     error_code = OTA_RESPONSE_ERROR_MAGIC;
-    goto error;
+    goto error;  // NOLINT(cppcoreguidelines-avoid-goto)
   }
 
   // Send OK and version - 2 bytes
@@ -161,7 +172,7 @@ void OTAComponent::handle_() {
   // Read features - 1 byte
   if (!this->readall_(buf, 1)) {
     ESP_LOGW(TAG, "Reading features failed!");
-    goto error;
+    goto error;  // NOLINT(cppcoreguidelines-avoid-goto)
   }
   ota_features = buf[0];  // NOLINT
   ESP_LOGV(TAG, "OTA features is 0x%02X", ota_features);
@@ -189,7 +200,7 @@ void OTAComponent::handle_() {
     // Send nonce, 32 bytes hex MD5
     if (!this->writeall_(reinterpret_cast<uint8_t *>(sbuf), 32)) {
       ESP_LOGW(TAG, "Auth: Writing nonce failed!");
-      goto error;
+      goto error;  // NOLINT(cppcoreguidelines-avoid-goto)
     }
 
     // prepare challenge
@@ -201,7 +212,7 @@ void OTAComponent::handle_() {
     // Receive cnonce, 32 bytes hex MD5
     if (!this->readall_(buf, 32)) {
       ESP_LOGW(TAG, "Auth: Reading cnonce failed!");
-      goto error;
+      goto error;  // NOLINT(cppcoreguidelines-avoid-goto)
     }
     sbuf[32] = '\0';
     ESP_LOGV(TAG, "Auth: CNonce is %s", sbuf);
@@ -216,7 +227,7 @@ void OTAComponent::handle_() {
     // Receive result, 32 bytes hex MD5
     if (!this->readall_(buf + 64, 32)) {
       ESP_LOGW(TAG, "Auth: Reading response failed!");
-      goto error;
+      goto error;  // NOLINT(cppcoreguidelines-avoid-goto)
     }
     sbuf[64 + 32] = '\0';
     ESP_LOGV(TAG, "Auth: Response is %s", sbuf + 64);
@@ -228,7 +239,7 @@ void OTAComponent::handle_() {
     if (!matches) {
       ESP_LOGW(TAG, "Auth failed! Passwords do not match!");
       error_code = OTA_RESPONSE_ERROR_AUTH_INVALID;
-      goto error;
+      goto error;  // NOLINT(cppcoreguidelines-avoid-goto)
     }
   }
 #endif  // USE_OTA_PASSWORD
@@ -240,7 +251,7 @@ void OTAComponent::handle_() {
   // Read size, 4 bytes MSB first
   if (!this->readall_(buf, 4)) {
     ESP_LOGW(TAG, "Reading size failed!");
-    goto error;
+    goto error;  // NOLINT(cppcoreguidelines-avoid-goto)
   }
   ota_size = 0;
   for (uint8_t i = 0; i < 4; i++) {
@@ -251,7 +262,7 @@ void OTAComponent::handle_() {
 
   error_code = backend->begin(ota_size);
   if (error_code != OTA_RESPONSE_OK)
-    goto error;
+    goto error;  // NOLINT(cppcoreguidelines-avoid-goto)
   update_started = true;
 
   // Acknowledge prepare OK - 1 byte
@@ -261,7 +272,7 @@ void OTAComponent::handle_() {
   // Read binary MD5, 32 bytes
   if (!this->readall_(buf, 32)) {
     ESP_LOGW(TAG, "Reading binary MD5 checksum failed!");
-    goto error;
+    goto error;  // NOLINT(cppcoreguidelines-avoid-goto)
   }
   sbuf[32] = '\0';
   ESP_LOGV(TAG, "Update: Binary MD5 is %s", sbuf);
@@ -277,23 +288,24 @@ void OTAComponent::handle_() {
     ssize_t read = this->client_->read(buf, requested);
     if (read == -1) {
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        App.feed_wdt();
         delay(1);
         continue;
       }
       ESP_LOGW(TAG, "Error receiving data for update, errno: %d", errno);
-      goto error;
+      goto error;  // NOLINT(cppcoreguidelines-avoid-goto)
     } else if (read == 0) {
       // $ man recv
       // "When  a  stream socket peer has performed an orderly shutdown, the return value will
       // be 0 (the traditional "end-of-file" return)."
       ESP_LOGW(TAG, "Remote end closed connection");
-      goto error;
+      goto error;  // NOLINT(cppcoreguidelines-avoid-goto)
     }
 
     error_code = backend->write(buf, read);
     if (error_code != OTA_RESPONSE_OK) {
-      ESP_LOGW(TAG, "Error writing binary data to flash!");
-      goto error;
+      ESP_LOGW(TAG, "Error writing binary data to flash!, error_code: %d", error_code);
+      goto error;  // NOLINT(cppcoreguidelines-avoid-goto)
     }
     total += read;
 
@@ -305,8 +317,9 @@ void OTAComponent::handle_() {
 #ifdef USE_OTA_STATE_CALLBACK
       this->state_callback_.call(OTA_IN_PROGRESS, percentage, 0);
 #endif
-      // slow down OTA update to avoid getting killed by task watchdog (task_wdt)
-      delay(10);
+      // feed watchdog and give other tasks a chance to run
+      App.feed_wdt();
+      yield();
     }
   }
 
@@ -316,8 +329,8 @@ void OTAComponent::handle_() {
 
   error_code = backend->end();
   if (error_code != OTA_RESPONSE_OK) {
-    ESP_LOGW(TAG, "Error ending OTA!");
-    goto error;
+    ESP_LOGW(TAG, "Error ending OTA!, error_code: %d", error_code);
+    goto error;  // NOLINT(cppcoreguidelines-avoid-goto)
   }
 
   // Acknowledge Update end OK - 1 byte
@@ -370,6 +383,7 @@ bool OTAComponent::readall_(uint8_t *buf, size_t len) {
     ssize_t read = this->client_->read(buf + at, len - at);
     if (read == -1) {
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        App.feed_wdt();
         delay(1);
         continue;
       }
@@ -381,6 +395,7 @@ bool OTAComponent::readall_(uint8_t *buf, size_t len) {
     } else {
       at += read;
     }
+    App.feed_wdt();
     delay(1);
   }
 
@@ -399,6 +414,7 @@ bool OTAComponent::writeall_(const uint8_t *buf, size_t len) {
     ssize_t written = this->client_->write(buf + at, len - at);
     if (written == -1) {
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        App.feed_wdt();
         delay(1);
         continue;
       }
@@ -407,6 +423,7 @@ bool OTAComponent::writeall_(const uint8_t *buf, size_t len) {
     } else {
       at += written;
     }
+    App.feed_wdt();
     delay(1);
   }
   return true;
@@ -446,16 +463,18 @@ bool OTAComponent::should_enter_safe_mode(uint8_t num_attempts, uint32_t enable_
 
   bool is_manual_safe_mode = this->safe_mode_rtc_value_ == esphome::ota::OTAComponent::ENTER_SAFE_MODE_MAGIC;
 
-  if (is_manual_safe_mode)
+  if (is_manual_safe_mode) {
     ESP_LOGI(TAG, "Safe mode has been entered manually");
-  else
+  } else {
     ESP_LOGCONFIG(TAG, "There have been %u suspected unsuccessful boot attempts.", this->safe_mode_rtc_value_);
+  }
 
   if (this->safe_mode_rtc_value_ >= num_attempts || is_manual_safe_mode) {
     this->clean_rtc();
 
-    if (!is_manual_safe_mode)
+    if (!is_manual_safe_mode) {
       ESP_LOGE(TAG, "Boot loop detected. Proceeding to safe mode.");
+    }
 
     this->status_set_error();
     this->set_timeout(enable_time, []() {
@@ -463,6 +482,8 @@ bool OTAComponent::should_enter_safe_mode(uint8_t num_attempts, uint32_t enable_
       App.reboot();
     });
 
+    // Delay here to allow power to stabilise before Wi-Fi/Ethernet is initialised.
+    delay(300);  // NOLINT
     App.setup();
 
     ESP_LOGI(TAG, "Waiting for OTA attempt.");
