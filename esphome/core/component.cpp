@@ -20,6 +20,7 @@ const float PROCESSOR = 400.0;
 const float BLUETOOTH = 350.0f;
 const float AFTER_BLUETOOTH = 300.0f;
 const float WIFI = 250.0f;
+const float ETHERNET = 250.0f;
 const float BEFORE_CONNECTION = 220.0f;
 const float AFTER_WIFI = 200.0f;
 const float AFTER_CONNECTION = 100.0f;
@@ -96,7 +97,7 @@ void Component::call() {
       // State loop: Call loop
       this->call_loop();
       break;
-    case COMPONENT_STATE_FAILED:
+    case COMPONENT_STATE_FAILED:  // NOLINT(bugprone-branch-clone)
       // State failed: Do nothing
       break;
     default:
@@ -177,7 +178,7 @@ bool Component::has_overridden_loop() const {
   return loop_overridden || call_loop_overridden;
 }
 
-PollingComponent::PollingComponent(uint32_t update_interval) : Component(), update_interval_(update_interval) {}
+PollingComponent::PollingComponent(uint32_t update_interval) : update_interval_(update_interval) {}
 
 void PollingComponent::call_setup() {
   // Let the polling component subclass setup their HW.

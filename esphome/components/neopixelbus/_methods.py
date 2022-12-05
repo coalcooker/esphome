@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, List
+from typing import Any
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.const import (
@@ -88,8 +88,8 @@ def _esp32_i2s_default_bus():
 
 
 def _validate_esp32_i2s_bus(value):
-    if isinstance(value, str) and value.lower() == CHANNEL_DYNAMIC:
-        value = CHANNEL_DYNAMIC
+    if isinstance(value, str) and value.lower() == BUS_DYNAMIC:
+        value = BUS_DYNAMIC
     else:
         value = cv.int_(value)
     variant_buses = {
@@ -349,7 +349,7 @@ def _spi_extra_validate(config):
 class MethodDescriptor:
     method_schema: Any
     to_code: Any
-    supported_chips: List[str]
+    supported_chips: list[str]
     extra_validate: Any = None
 
 
